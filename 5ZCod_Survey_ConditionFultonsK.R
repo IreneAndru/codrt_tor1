@@ -25,9 +25,6 @@ springDFO <- springDFO[springDFO$FSEX>0 & springDFO$FMAT>5 & springDFO$YEAR>1980
 springDFO <- springDFO[springDFO$AREA %in% c(523,524,522,525),] #GB Management Unit
 springDFO <- na.omit(springDFO)
 
-springDFO <- springDFO[springDFO$AREA %in% c(523,524,522,525),]#GB Management Unit
-springDFO <- na.omit(springDFO)
-
 ps <- springDFO %>% 
   group_by(YEAR) %>%
   summarize(FultonK=mean(FULTK), SD=sd(FULTK), CV=(sd(FULTK)/mean(FULTK)*100))
@@ -97,7 +94,6 @@ FultonsKplot
 FultonsKplot <- ggplot(subset(all, Stock!="Western Scotian Shelf"), aes(YEAR, FultonK, col=SEX)) + geom_point(size=2) + geom_line(size=1) + geom_errorbar(aes(ymin=FultonK-SD, ymax=FultonK+SD), width=.2, position=position_dodge(.9)) +
   facet_grid(Stock~source, scale="free_y")+ scale_color_manual(values = c('red','blue')) + theme_bw() + geom_line(aes(YEAR,avgFultK),linetype=2,size=1,col='black')+ylab('FultonK')
 FultonsKplot
-
 
 ggsave(here("figures/AllSurveys_Condition_FultonsK.png"))
 
