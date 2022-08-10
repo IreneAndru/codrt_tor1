@@ -13,6 +13,7 @@ library(ggplot2)
 library(plyr)
 library(dplyr)
 library(here)
+library(readxl)
 
 channel <- ROracle::dbConnect(DBI::dbDriver("Oracle"), username=AwesomeUser, password=AwesomePwd, oracle.dsn)
 
@@ -20,17 +21,14 @@ channel <- ROracle::dbConnect(DBI::dbDriver("Oracle"), username=AwesomeUser, pas
 springDFO <- ROracle::dbGetQuery(channel, paste("select a.fsex, a.fshno, a.fmat, a.spec, a.mission, a.setno, b.strat, b.area, b.type, c.season, c.year,(100*(a.FWT)/(POWER(a.FLEN,3)))FultK 
                                                 from groundfish.gsdet a, groundfish.gsinf b, groundfish.gsmissions c 
                                                 where a.spec=10 and c.season='SPRING' and b.strat in ('5Z1','5Z2','5Z3','5Z4','5Z8') and a.mission=b.mission and a.setno=b.setno and a.mission=c.mission"))
-#springDFO <- springDFO[springDFO$FSEX>0 & springDFO$FMAT>5 & springDFO$YEAR>1980,] #Only using post-spawning fish; hash out if not.
+springDFO <- springDFO[springDFO$FSEX>0 & springDFO$FMAT>5 & springDFO$YEAR>1980,] #Only using post-spawning fish; hash out if not.
 springDFO <- springDFO[springDFO$AREA %in% c(523,524,522,525),] #GB Management Unit
 springDFO <- na.omit(springDFO)
 
-#Calculate average fish condition post spawn
-psDFO <- ROracle::dbGetQuery(channel, paste("select a.fshno, a.fmat, a.spec, a.mission, a.setno, b.strat, b.area, b.type, c.season, c.year,(100*(a.FWT)/(POWER(a.FLEN,3)))FultK from groundfish.gsdet a, groundfish.gsinf b, groundfish.gsmissions c where a.spec=10 and c.season='SPRING' and b.strat in ('5Z1','5Z2','5Z3','5Z4','5Z8') and a.mission=b.mission and a.setno=b.setno and a.mission=c.mission"))
-#psDFO <- psDFO[psDFO$FMAT>5 & psDFO$YEAR>1980,]#Only using post-spawning fish; hash out if not.
-psDFO <- psDFO[psDFO$AREA %in% c(523,524,522,525),]#GB Management Unit
-psDFO <- na.omit(psDFO)
+springDFO <- springDFO[springDFO$AREA %in% c(523,524,522,525),]#GB Management Unit
+springDFO <- na.omit(springDFO)
 
-ps <- psDFO %>% 
+ps <- springDFO %>% 
   group_by(YEAR) %>%
   summarize(FultonK=mean(FULTK), SD=sd(FULTK), CV=(sd(FULTK)/mean(FULTK)*100))
 mFK <- mean(ps$FultonK) ##This is the avgFultK value 
@@ -45,6 +43,7 @@ sprDFO$Stock<-'Georges Bank'
 ###US Bottom Trawl Surveys
 
 #Read in file with strata allocations to spatial units
+
 strata <- read_excel("strata_assignments_final.xlsx")
 strata$STRATUM<-paste(0,strata$STRATA, sep="") #Converting strata to same format as in USNEFSC.
 
@@ -86,10 +85,10 @@ sprNMFS$YEAR <- as.numeric(sprNMFS$YEAR)
 ##All surveys plotted together-----------------
 
 sprDFO$source <- "DFO"
-falNMFS$source <- "NMFS Fall"
+fallNMFS$source <- "NMFS Fall"
 sprNMFS$source <- "NMFS Spring"
 sprDFO <- sprDFO %>% select(YEAR, SEX, Stock, FultonK, SD, CV, avgFultK, source)
-all <- rbind(sprDFO, falNMFS, sprNMFS)
+all <- rbind(sprDFO, fallNMFS, sprNMFS)
 
 FultonsKplot <- ggplot(all, aes(YEAR, FultonK, col=SEX)) + geom_point(size=2) + geom_line(size=1) + geom_errorbar(aes(ymin=FultonK-SD, ymax=FultonK+SD), width=.2, position=position_dodge(.9)) +
   facet_grid(source~Stock)+ scale_color_manual(values = c('red','blue')) + theme_bw() + geom_line(aes(YEAR,avgFultK),linetype=2,size=1,col='black')+ylab('FultonK')
@@ -101,5 +100,4 @@ FultonsKplot
 
 
 ggsave(here("figures/AllSurveys_Condition_FultonsK.png"))
-
 
