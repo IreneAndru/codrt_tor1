@@ -97,3 +97,6 @@ FultonsKplot
 
 ggsave(here("figures/AllSurveys_Condition_FultonsK.png"))
 
+#CV Comparison across areas and surveys
+ggplot(subset(all, Stock!="Western Scotian Shelf"), aes(YEAR, CV, col=SEX)) + geom_point(size=2) + geom_line(size=1) +
+         facet_grid(Stock~source)+ scale_color_manual(values = c('red','blue')) + theme_bw() +ylab('CV')+geom_hline(yintercept=10)
