@@ -46,9 +46,14 @@ strata$STRATUM<-paste(0,strata$STRATA, sep="") #Converting strata to same format
 
 ##NMFS Fall---------------
 
-#Using SQL script from Access
+#Using SQL script from Access; originally developed with Loretta. Includes Spent, Resting and Immature fish.
 fallNMFS<-ROracle::dbGetQuery(channel, paste("SELECT A.SEX, B.Year, A.INDWT, A.LENGTH, C.STRATUM
 FROM USNEFSC.USS_MSTR_CRUISE B INNER JOIN (USNEFSC.NMFS5ZJM D INNER JOIN (USNEFSC.USS_STATION C INNER JOIN USNEFSC.USS_DETAIL A ON (C.CRUISE6 = A.CRUISE6) AND (C.STRATUM = A.STRATUM) AND (C.TOW = A.TOW) AND (C.STATION = A.STATION)) ON D.STRAT = C.STRATUM) ON B.CRUISE6 = A.CRUISE6 WHERE (((A.INDWT) Is Not Null) AND ((A.MATURITY)='S' Or (A.MATURITY)='T' Or (A.MATURITY)='I') AND ((B.SEASON)='FALL') AND ((A.SVSPP)='073') AND ((B.PURPOSE_CODE)='10') ) GROUP BY A.SEX, B.Year, C.CRUISE6,C.stratum, a.INDWT, a.LENGTH HAVING (((A.SEX)='1' Or (A.SEX)='2')) ORDER BY A.SEX, B.Year, C.CRUISE6")) #Removed Area and Stratum limit. Went from 1900 records to 4700. Seems legit. "AND ((C.AREA) In ('551','552','561','562')) AND ((C.STRATUM) In ('01160','01170','01180','01190','01200','01210','01220'))"
+
+#Exclude immature fish
+fallNMFS<-ROracle::dbGetQuery(channel, paste("SELECT A.SEX, B.Year, A.INDWT, A.LENGTH, C.STRATUM
+FROM USNEFSC.USS_MSTR_CRUISE B INNER JOIN (USNEFSC.NMFS5ZJM D INNER JOIN (USNEFSC.USS_STATION C INNER JOIN USNEFSC.USS_DETAIL A ON (C.CRUISE6 = A.CRUISE6) AND (C.STRATUM = A.STRATUM) AND (C.TOW = A.TOW) AND (C.STATION = A.STATION)) ON D.STRAT = C.STRATUM) ON B.CRUISE6 = A.CRUISE6 WHERE (((A.INDWT) Is Not Null) AND ((A.MATURITY)='S' Or (A.MATURITY)='T') AND ((B.SEASON)='FALL') AND ((A.SVSPP)='073') AND ((B.PURPOSE_CODE)='10') ) GROUP BY A.SEX, B.Year, C.CRUISE6,C.stratum, a.INDWT, a.LENGTH HAVING (((A.SEX)='1' Or (A.SEX)='2')) ORDER BY A.SEX, B.Year, C.CRUISE6")) #Removed Area and Stratum limit. Went from 1900 records to 4700. Seems legit. "AND ((C.AREA) In ('551','552','561','562')) AND ((C.STRATUM) In ('01160','01170','01180','01190','01200','01210','01220'))"
+
 
 fallNMFS$cLENGTH <- fallNMFS$LENGTH^3
 fallNMFS$FULTK <- fallNMFS$INDWT/fallNMFS$cLENGTH
@@ -64,8 +69,14 @@ fallNMFS$YEAR <- as.numeric(fallNMFS$YEAR)
 
 ##NMFS Spring-------------------
 
+#Original script developed with Loretta; Includes Immature, Spent and Resting fish.
 springNMFS<-ROracle::dbGetQuery(channel, paste("SELECT A.SEX, B.Year, c.STRATUM, A.INDWT, A.LENGTH
 FROM USNEFSC.USS_MSTR_CRUISE B INNER JOIN (USNEFSC.NMFS5ZJM D INNER JOIN (USNEFSC.USS_STATION C INNER JOIN USNEFSC.USS_DETAIL A ON (C.CRUISE6 = A.CRUISE6) AND (C.STRATUM = A.STRATUM) AND (C.TOW = A.TOW) AND (C.STATION = A.STATION)) ON D.STRAT = C.STRATUM) ON B.CRUISE6 = A.CRUISE6 WHERE (((A.INDWT) Is Not Null) AND ((A.MATURITY)='S' Or (A.MATURITY)='T' Or (A.MATURITY)='I') AND ((B.SEASON)='SPRING') AND ((A.SVSPP)='073') AND ((B.PURPOSE_CODE)='10')) GROUP BY A.SEX, B.Year, C.CRUISE6, c.stratum, a.INDWT, a.LENGTH HAVING (((A.SEX)='1' Or (A.SEX)='2')) ORDER BY A.SEX, B.Year, C.CRUISE6")) #Removed area and stratum restriction. Goes from 4000 records to 8800. AND ((C.AREA) In ('551','552','561','562')) AND ((C.STRATUM) In ('01160','01170','01180','01190','01200','01210','01220'))
+
+#Exclude immature fish
+springNMFS<-ROracle::dbGetQuery(channel, paste("SELECT A.SEX, B.Year, c.STRATUM, A.INDWT, A.LENGTH
+FROM USNEFSC.USS_MSTR_CRUISE B INNER JOIN (USNEFSC.NMFS5ZJM D INNER JOIN (USNEFSC.USS_STATION C INNER JOIN USNEFSC.USS_DETAIL A ON (C.CRUISE6 = A.CRUISE6) AND (C.STRATUM = A.STRATUM) AND (C.TOW = A.TOW) AND (C.STATION = A.STATION)) ON D.STRAT = C.STRATUM) ON B.CRUISE6 = A.CRUISE6 WHERE (((A.INDWT) Is Not Null) AND ((A.MATURITY)='S' Or (A.MATURITY)='T') AND ((B.SEASON)='SPRING') AND ((A.SVSPP)='073') AND ((B.PURPOSE_CODE)='10')) GROUP BY A.SEX, B.Year, C.CRUISE6, c.stratum, a.INDWT, a.LENGTH HAVING (((A.SEX)='1' Or (A.SEX)='2')) ORDER BY A.SEX, B.Year, C.CRUISE6")) #Removed area and stratum restriction. Goes from 4000 records to 8800. AND ((C.AREA) In ('551','552','561','562')) AND ((C.STRATUM) In ('01160','01170','01180','01190','01200','01210','01220'))
+
 
 springNMFS$cLENGTH <- springNMFS$LENGTH^3
 springNMFS$FULTK <- springNMFS$INDWT/springNMFS$cLENGTH
@@ -100,3 +111,7 @@ ggsave(here("figures/AllSurveys_Condition_FultonsK.png"))
 #CV Comparison across areas and surveys
 ggplot(subset(all, Stock!="Western Scotian Shelf"), aes(YEAR, CV, col=SEX)) + geom_point(size=2) + geom_line(size=1) +
          facet_grid(Stock~source)+ scale_color_manual(values = c('red','blue')) + theme_bw() +ylab('CV')+geom_hline(yintercept=10)
+
+ggsave(here("figures/AllSurveys_Condition_FultonsK_CV.png"))
+
+write.csv(all, 'FultonKOutput.csv')
