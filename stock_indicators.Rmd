@@ -1,0 +1,723 @@
+---
+title: "Indicators by stock"
+author: "Abigail Tyrell"
+date: "`r format(Sys.time(), '%d %b %Y')`"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE,
+                      fig.height = 7)
+`%>%` <- magrittr::`%>%`
+```
+
+```{r}
+esp_traffic_fig <- function(data,
+                             name,
+                             out = "one_pager",
+                             paginate = FALSE,
+                             label = TRUE,
+                             caption = "",
+                             ncolumn = 1,
+                             silent = FALSE,
+                             min_year = 1985,
+                            sd = FALSE,
+                             ...) {
+  maxyear <- max(data$YEAR)
+
+  ### data prep ----
+  ### write code
+  ### colnames being used in current code:
+  ### YEAR, DATA_VALUE, mean, sd, name (indicator name), label_num, score,
+
+  dat <- data %>%
+    dplyr::group_by(INDICATOR_NAME) %>%
+    dplyr::mutate(mean = mean(DATA_VALUE, na.rm = TRUE),
+                  sd = sd(DATA_VALUE, na.rm = TRUE),
+                  name = stringr::str_wrap(INDICATOR_NAME,
+                                           width = 75))
+
+  dat$name <- factor(dat$name, levels = unique(dat$name))
+
+  # base figure ----
+  plt <- ggplot2::ggplot(
+    dat,
+    ggplot2::aes(
+      x = .data$YEAR,
+      y = .data$DATA_VALUE,
+      group = .data$name
+    )
+  ) +
+      # add sd ribbon if specified
+  {
+    if(sd) {
+      ggplot2::geom_ribbon(ggplot2::aes(ymin = .data$DATA_VALUE - .data$DATA_SD,
+                                        ymax = .data$DATA_VALUE + DATA_SD),
+                           alpha = 0.25,
+                           fill = "darkgreen")
+    }
+  } +
+    
+    ggplot2::geom_hline(ggplot2::aes(
+      yintercept = .data$mean + .data$sd,
+      group = .data$name
+    ),
+    color = "darkgreen",
+    linetype = "solid"
+    ) +
+    ggplot2::geom_hline(ggplot2::aes(
+      yintercept = .data$mean - .data$sd,
+      group = .data$name
+    ),
+    color = "darkgreen",
+    linetype = "solid"
+    ) +
+    ggplot2::geom_hline(ggplot2::aes(
+      yintercept = .data$mean,
+      group = .data$name
+    ),
+    color = "darkgreen",
+    linetype = "dotted"
+    ) +
+    ggplot2::geom_point() +
+    ggplot2::geom_line(data = dat %>%
+                         tidyr::drop_na(.data$DATA_VALUE)) +
+    ggplot2::ylab("") +
+    ggplot2::scale_y_continuous(labels = scales::comma,
+                                n.breaks = 4) +
+    ggplot2::scale_x_continuous(n.breaks = 4) +
+    ggplot2::theme_bw(base_size = 16) +
+    ggplot2::theme(strip.text = ggplot2::element_text(size = 10),
+                   aspect.ratio = 0.25)
+  
+  # test linear trend and add line if there is a trend
+  pdat <- dat %>%
+    tidyr::drop_na(DATA_VALUE) %>%
+    dplyr::group_by(name) %>%
+    dplyr::mutate(n_obs = dplyr::n()) %>%
+    dplyr::filter(n_obs > 30)
+
+  if(nrow(pdat) > 0){
+    pdat <- pdat %>%
+      # Fit the linear model for each grouping
+      dplyr::do(fit = broom::tidy(lm(DATA_VALUE ~ YEAR, data = .))) %>%
+      tidyr::unnest(fit) %>%
+      dplyr::mutate(sig = ifelse(p.value < 0.05, "yes", "no")) %>%
+      dplyr::filter(term == "YEAR") %>%
+      dplyr::select(name, sig)
+
+    dat <- dplyr::full_join(dat,
+                            pdat,
+                            by = "name") %>%
+      dplyr::mutate(sig = ifelse(is.na(sig), "no", sig))
+
+    plt <- plt +
+      ggplot2::geom_smooth(data = dat %>%
+                             dplyr::filter(sig == "yes"),
+                           method = "lm",
+                           se = FALSE,
+                           color = "darkgreen",
+                           cex = 1.5)
+  }
+
+    if (is.null(min_year)) {
+      plt <- plt +
+        ggplot2::xlim(c(min(dat$YEAR), max(dat$YEAR) + 0.5))
+    } else {
+      plt <- plt +
+        ggplot2::xlim(c(min_year, max(dat$YEAR) + 0.5))
+    }
+  
+  # label facets ----
+  finish_fig <- function() {
+    if (label) {
+      plt <- plt %>%
+        AKesp::label_facets(open = "", close = "")
+    }
+
+    if (out == "save") {
+      ggplot2::ggsave(plt, filename = paste0(name, "_page", i, ".png"), ...)
+    } else if (out == "ggplot") {
+      print(plt)
+      cat("\n\n")
+      if (silent == FALSE) {
+        cat("##### Figure \\@ref(fig:traffic).", caption, "{-}")
+      }
+      cat("\n\n")
+    } else if (out == "one_pager") {
+      return(plt)
+    }
+    else {
+      stop("Please specify output format")
+    }
+  }
+
+  if (paginate == TRUE) {
+    plt2 <- plt +
+      ggforce::facet_wrap_paginate(~name,
+                                   ncol = ncolumn,
+                                   nrow = 5,
+                                   scales = "free_y"
+      )
+
+    n <- ggforce::n_pages(plt2)
+
+    for (i in 1:n) {
+      plt <- plt +
+        ggforce::facet_wrap_paginate(~name,
+                                     ncol = ncolumn,
+                                     nrow = 5,
+                                     scales = "free_y",
+                                     page = i
+        )
+
+      finish_fig()
+    }
+  } else {
+    plt <- plt +
+      ggplot2::facet_wrap(~name,
+                          ncol = ncolumn,
+                          scales = "free_y"
+      )
+
+    finish_fig()
+  }
+}
+```
+
+# Species-wide indicators
+
+## Gulf Stream Anomaly
+```{r, fig.height = 10}
+dat <- ecodata::gsi %>%
+  dplyr::mutate(Year = Time %>%
+                  stringr::str_trunc(4, "right", "") %>%
+                  as.numeric(),
+                Month = Time %>%
+                  stringr::str_trunc(2, "left", "") %>%
+                  as.numeric(),
+                Month = ifelse(Month == 0.1, 10, Month),
+                Month = month.name[Month],
+                INDICATOR_NAME = paste(Month, "GSI")) %>%
+  dplyr::rename(YEAR = Time,
+                DATA_VALUE = Value)
+
+esp_traffic_fig(dat, 
+                min_year = 1954,
+                ncolumn = 2)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+### Annual anomaly
+```{r, fig.height = 3}
+dat <- ecodata::gsi %>%
+  dplyr::mutate(Year = Time %>%
+                  stringr::str_trunc(4, "right", "") %>%
+                  as.numeric()) %>%
+  dplyr::group_by(Year) %>%
+  dplyr::summarise(DATA_VALUE = mean(Value),
+                   DATA_SD = sd(Value),
+                   INDICATOR_NAME = "Annual GSI") %>%
+  dplyr::rename(YEAR = Year)
+
+esp_traffic_fig(dat, 
+                min_year = 1954,
+                sd = TRUE)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+# Western Gulf of Maine
+
+## Monthly Sea Surface Temperature
+
+January and July are the most important spawning months
+
+```{r}
+dat <- read.csv(url("https://raw.githubusercontent.com/kimberly-bastille/ESPplayground/main/data-raw/cod_temperature.csv")) %>%
+  dplyr::select(-X) %>%
+  dplyr::distinct() %>%
+  dplyr::filter(Region == "WGOM",
+                Month == 1 | Month == 7) %>%
+  dplyr::mutate(Month = month.name[Month]) %>%
+  dplyr::rename(YEAR = Year) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(Month, INDICATOR_NAME))
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 1,
+                sd = TRUE)
+```
+
+### Use in assessment
+Direct covariate on recruitment (omit July area under 11C)
+
+## Marine heatwaves
+```{r, fig.height = 3.5}
+dat <- ecodata::ESP_heatwave_cod %>%
+  dplyr::filter(stock_id == "WGOM") %>%
+  dplyr::group_by(Time, Var) %>%
+  dplyr::summarise(max_value = max(Value)) %>%
+  dplyr::rename(YEAR = Time,
+                INDICATOR_NAME = Var,
+                DATA_VALUE = max_value)
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 1)
+```
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+### Use in assessment
+Regime shift natural mortality in ~2010
+
+## Zooplankton
+
+Winter and summer are probably the most important seasons for larvae. 
+
+```{r}
+winter <- read.csv(here::here("WGOM_winter_zooplankton.csv"))
+spring <- read.csv(here::here("WGOM_spring_zooplankton.csv"))
+summer <- read.csv(here::here("WGOM_summer_zooplankton.csv"))
+fall <- read.csv(here::here("WGOM_fall_zooplankton.csv"))
+
+dat <- rbind(winter, spring, summer, fall) %>%
+  dplyr::select(year, season, ctyp_100m3, calfin_100m3, pseudo_100m3, tlong_100m3) %>%
+  dplyr::rename(YEAR = year) %>%
+  tidyr::pivot_longer(cols = c("ctyp_100m3", "calfin_100m3", "pseudo_100m3", "tlong_100m3")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(season, name)) %>%
+  dplyr::rename(DATA_VALUE = value)
+
+dat <- dat %>%
+  dplyr::filter(stringr::str_detect(INDICATOR_NAME, "Winter") |
+                  stringr::str_detect(INDICATOR_NAME, "Summer"))
+```
+
+### Calanus
+```{r, fig.height = 3.5}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "calfin_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Pseudocalanus
+```{r, fig.height = 3.5}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "pseudo_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Centropages
+```{r, fig.height = 3.5}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "ctyp_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Temora
+```{r, fig.height = 3.5}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "tlong_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Use in assessment
+Direct covariate on recruitment?
+
+## Condition
+```{r}
+dat <- read.csv(here::here("Condition/ADIOS_SV_164712_WGOM_NONE_relative_k.csv")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(SEASON, SURVEY)) %>%
+  dplyr::select(YEAR, INDICATOR_NAME, K_rel) %>%
+  dplyr::group_by(YEAR, INDICATOR_NAME) %>%
+  dplyr::summarise(DATA_VALUE = mean(K_rel),
+                   DATA_SD = sd(K_rel))
+
+esp_traffic_fig(dat, 
+                min_year = 1992,
+                ncolumn = 1,
+                sd = TRUE)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+### Use in assessment
+?
+
+# Georges Bank
+
+## Monthly Sea Surface Temperature
+
+April is the most important spawning month
+
+```{r, fig.height = 3.5}
+dat <- read.csv(url("https://raw.githubusercontent.com/kimberly-bastille/ESPplayground/main/data-raw/cod_temperature.csv")) %>%
+  dplyr::filter(Region == "GBK",
+                Month == 4) %>%
+  dplyr::mutate(Month = month.name[Month]) %>%
+  dplyr::rename(YEAR = Year) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(Month, INDICATOR_NAME))
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 1,
+                sd = TRUE)
+```
+
+### Use in assessment
+Direct covariate on recruitment
+
+## Marine heatwaves
+```{r, fig.height = 3.5}
+dat <- ecodata::ESP_heatwave_cod %>%
+  dplyr::filter(stock_id == "GBK") %>%
+  dplyr::group_by(Time, Var) %>%
+  dplyr::summarise(max_value = max(Value)) %>%
+  dplyr::rename(YEAR = Time,
+                INDICATOR_NAME = Var,
+                DATA_VALUE = max_value)
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 1)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+### Use in assessment
+Regime shift natural mortality in ~2010
+
+## Zooplankton
+
+Spring is probably the most important season for larvae.
+
+```{r}
+winter <- read.csv(here::here("GB_winter_zooplankton.csv"))
+spring <- read.csv(here::here("GB_spring_zooplankton.csv"))
+summer <- read.csv(here::here("GB_summer_zooplankton.csv"))
+fall <- read.csv(here::here("GB_fall_zooplankton.csv"))
+
+dat <- rbind(winter, spring, summer, fall) %>%
+  dplyr::select(year, season, ctyp_100m3, calfin_100m3, pseudo_100m3, tlong_100m3) %>%
+  dplyr::rename(YEAR = year) %>%
+  tidyr::pivot_longer(cols = c("ctyp_100m3", "calfin_100m3", "pseudo_100m3", "tlong_100m3")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(season, name)) %>%
+  dplyr::rename(DATA_VALUE = value)
+
+dat <- dat %>%
+  dplyr::filter(stringr::str_detect(INDICATOR_NAME, "Spring"))
+```
+
+### Calanus
+```{r, fig.height = 2}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "calfin_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Pseudocalanus
+```{r, fig.height = 2}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "pseudo_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Centropages
+```{r, fig.height = 2}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "ctyp_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Temora
+```{r, fig.height = 2}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "tlong_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Use in assessment
+
+
+## Condition
+```{r, fig.height = 3.5}
+dat <- read.csv(here::here("Condition/ADIOS_SV_164712_GBK_NONE_relative_k.csv")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(SEASON, SURVEY)) %>%
+  dplyr::select(YEAR, INDICATOR_NAME, K_rel) %>%
+  dplyr::group_by(YEAR, INDICATOR_NAME) %>%
+  dplyr::summarise(DATA_VALUE = mean(K_rel),
+                   DATA_SD = sd(K_rel))
+
+esp_traffic_fig(dat, 
+                min_year = 1992,
+                ncolumn = 1,
+                sd = TRUE)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+### Use in assessment
+?
+
+# Southern New England
+
+## Monthly Sea Surface Temperature
+
+April is the most important spawning month
+
+```{r, fig.height = 3.5}
+dat <- read.csv(url("https://raw.githubusercontent.com/kimberly-bastille/ESPplayground/main/data-raw/cod_temperature.csv")) %>%
+  dplyr::filter(Region == "SNE",
+                Month == 4) %>%
+  dplyr::mutate(Month = month.name[Month]) %>%
+  dplyr::rename(YEAR = Year) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(Month, INDICATOR_NAME))
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 1,
+                sd = TRUE)
+```
+
+### Use in assessment
+?
+
+## Marine heatwaves
+```{r, fig.height = 3.5}
+dat <- ecodata::ESP_heatwave_cod %>%
+  dplyr::filter(stock_id == "SNE") %>%
+  dplyr::group_by(Time, Var) %>%
+  dplyr::summarise(max_value = max(Value)) %>%
+  dplyr::rename(YEAR = Time,
+                INDICATOR_NAME = Var,
+                DATA_VALUE = max_value)
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 1)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+### Use in assessment
+Regime shift natural mortality in ~2010
+
+## Zooplankton
+
+Spring is probably the most important season for larvae.
+
+```{r}
+winter <- read.csv(here::here("SNE_winter_zooplankton.csv"))
+spring <- read.csv(here::here("SNE_spring_zooplankton.csv"))
+summer <- read.csv(here::here("SNE_summer_zooplankton.csv"))
+fall <- read.csv(here::here("SNE_fall_zooplankton.csv"))
+
+dat <- rbind(winter, spring, summer, fall) %>%
+  dplyr::select(year, season, ctyp_100m3, calfin_100m3, pseudo_100m3, tlong_100m3) %>%
+  dplyr::rename(YEAR = year) %>%
+  tidyr::pivot_longer(cols = c("ctyp_100m3", "calfin_100m3", "pseudo_100m3", "tlong_100m3")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(season, name)) %>%
+  dplyr::rename(DATA_VALUE = value)
+
+dat <- dat %>%
+  dplyr::filter(stringr::str_detect(INDICATOR_NAME, "Spring"))
+```
+
+### Calanus
+```{r, fig.height = 2}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "calfin_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Pseudocalanus
+```{r, fig.height = 2}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "pseudo_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Centropages
+```{r, fig.height = 2}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "ctyp_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Temora
+```{r, fig.height = 2}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "tlong_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Use in assessment
+
+
+## Condition
+```{r, fig.height = 5}
+dat <- read.csv(here::here("Condition/ADIOS_SV_164712_SNEMA_NONE_relative_k.csv")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(SEASON, SURVEY)) %>%
+  dplyr::select(YEAR, INDICATOR_NAME, K_rel) %>%
+  dplyr::group_by(YEAR, INDICATOR_NAME) %>%
+  dplyr::summarise(DATA_VALUE = mean(K_rel),
+                   DATA_SD = sd(K_rel))
+
+esp_traffic_fig(dat, 
+                min_year = 1992,
+                ncolumn = 1,
+                sd = TRUE)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+### Use in assessment
+?
+
+# Eastern Gulf of Maine
+
+## Monthly Sea Surface Temperature
+
+January and July are the most important spawning months
+
+```{r}
+dat <- read.csv(url("https://raw.githubusercontent.com/kimberly-bastille/ESPplayground/main/data-raw/cod_temperature.csv")) %>%
+  dplyr::filter(Region == "EGOM",
+                Month == 1 | Month == 7) %>%
+  dplyr::mutate(Month = month.name[Month]) %>%
+  dplyr::rename(YEAR = Year) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(Month, INDICATOR_NAME))
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 1,
+                sd = TRUE)
+```
+
+## Marine heatwaves
+```{r, fig.height = 3.5}
+dat <- ecodata::ESP_heatwave_cod %>%
+  dplyr::filter(stock_id == "EGOM") %>%
+  dplyr::group_by(Time, Var) %>%
+  dplyr::summarise(max_value = max(Value)) %>%
+  dplyr::rename(YEAR = Time,
+                INDICATOR_NAME = Var,
+                DATA_VALUE = max_value)
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 1)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+### Use in assessment
+Regime shift natural mortality in ~2010
+
+## Zooplankton
+
+Winter and summer are probably the most important seasons for larave. 
+
+```{r}
+winter <- read.csv(here::here("EGOM_winter_zooplankton.csv"))
+spring <- read.csv(here::here("EGOM_spring_zooplankton.csv"))
+summer <- read.csv(here::here("EGOM_summer_zooplankton.csv"))
+fall <- read.csv(here::here("EGOM_fall_zooplankton.csv"))
+
+dat <- dplyr::full_join(winter, spring) %>%
+  dplyr::full_join(summer) %>%
+  dplyr::full_join(fall) %>%
+  dplyr::select(year, season, ctyp_100m3, calfin_100m3, pseudo_100m3, tlong_100m3) %>%
+  dplyr::rename(YEAR = year) %>%
+  tidyr::pivot_longer(cols = c("ctyp_100m3", "calfin_100m3", "pseudo_100m3", "tlong_100m3")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(season, name)) %>%
+  dplyr::rename(DATA_VALUE = value)
+
+dat <- dat %>%
+  dplyr::filter(stringr::str_detect(INDICATOR_NAME, "Winter") |
+                  stringr::str_detect(INDICATOR_NAME, "Summer"))
+```
+
+### Calanus
+```{r, fig.height = 3.5}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "calfin_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Pseudocalanus
+```{r, fig.height = 3.5}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "pseudo_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Centropages
+```{r, fig.height = 3.5}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "ctyp_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+### Temora
+```{r, fig.height = 3.5}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "tlong_100m3"), 
+                min_year = 1977,
+                ncolumn = 1)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+
+## Condition
+```{r, fig.height = 3.5}
+dat <- read.csv(here::here("Condition/ADIOS_SV_164712_EGOM_NONE_relative_k.csv")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(SEASON, SURVEY)) %>%
+  dplyr::select(YEAR, INDICATOR_NAME, K_rel) %>%
+  dplyr::group_by(YEAR, INDICATOR_NAME) %>%
+  dplyr::summarise(DATA_VALUE = mean(K_rel),
+                   DATA_SD = sd(K_rel))
+
+esp_traffic_fig(dat, 
+                min_year = 1992,
+                ncolumn = 1,
+                sd = TRUE)
+```
+
+```{r, child = here::here("regime_child.Rmd")}
+```
+

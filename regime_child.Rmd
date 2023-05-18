@@ -1,0 +1,24 @@
+### Regime shift detection
+```{r}
+for(i in unique(dat$INDICATOR_NAME)){
+
+  this_dat <- dat %>% 
+     dplyr::ungroup() %>%
+    dplyr::filter(INDICATOR_NAME == i) 
+  
+  if(nrow(this_dat) > 2) {
+      print(i)
+
+    stars <- this_dat %>%
+    rshift::Rodionov("DATA_VALUE", "YEAR", 10)
+    
+    if(nrow(stars) > 0) {
+      stars %>%
+    print()
+    } else {
+      print("no regime shift")
+    }
+          cat("\n")
+  }
+}
+```

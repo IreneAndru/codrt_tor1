@@ -1,0 +1,288 @@
+---
+title: "Indicator time series"
+author: "Abigail Tyrell"
+date: "12/8/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE)
+`%>%` <- magrittr::`%>%`
+```
+
+```{r}
+esp_traffic_fig <- function(data,
+                             name,
+                             out = "one_pager",
+                             paginate = FALSE,
+                             label = TRUE,
+                             caption = "",
+                             ncolumn = 1,
+                             silent = FALSE,
+                             min_year = 1985,
+                             ...) {
+  maxyear <- max(data$YEAR)
+
+  ### data prep ----
+  ### write code
+  ### colnames being used in current code:
+  ### YEAR, DATA_VALUE, mean, sd, name (indicator name), label_num, score,
+
+  dat <- data %>%
+    dplyr::group_by(INDICATOR_NAME) %>%
+    dplyr::mutate(mean = mean(DATA_VALUE, na.rm = TRUE),
+                  sd = sd(DATA_VALUE, na.rm = TRUE),
+                  name = stringr::str_wrap(INDICATOR_NAME,
+                                           width = 75))
+
+  dat$name <- factor(dat$name, levels = unique(dat$name))
+
+  # base figure ----
+  plt <- ggplot2::ggplot(
+    dat,
+    ggplot2::aes(
+      x = .data$YEAR,
+      y = .data$DATA_VALUE,
+      group = .data$name
+    )
+  ) +
+    ggplot2::geom_hline(ggplot2::aes(
+      yintercept = .data$mean + .data$sd,
+      group = .data$name
+    ),
+    color = "darkgreen",
+    linetype = "solid"
+    ) +
+    ggplot2::geom_hline(ggplot2::aes(
+      yintercept = .data$mean - .data$sd,
+      group = .data$name
+    ),
+    color = "darkgreen",
+    linetype = "solid"
+    ) +
+    ggplot2::geom_hline(ggplot2::aes(
+      yintercept = .data$mean,
+      group = .data$name
+    ),
+    color = "darkgreen",
+    linetype = "dotted"
+    ) +
+    ggplot2::geom_point() +
+    ggplot2::geom_line(data = dat %>%
+                         tidyr::drop_na(.data$DATA_VALUE)) +
+    ggplot2::ylab("") +
+    ggplot2::scale_y_continuous(labels = scales::comma,
+                                n.breaks = 4) +
+    ggplot2::theme_bw(base_size = 16) +
+    ggplot2::theme(strip.text = ggplot2::element_text(size = 10),
+                   aspect.ratio = 0.25)
+
+  # test linear trend and add line if there is a trend
+  pdat <- dat %>%
+    tidyr::drop_na(DATA_VALUE) %>%
+    dplyr::group_by(name) %>%
+    dplyr::mutate(n_obs = dplyr::n()) %>%
+    dplyr::filter(n_obs > 30)
+
+  if(nrow(pdat) > 0){
+    pdat <- pdat %>%
+      # Fit the linear model for each grouping
+      dplyr::do(fit = broom::tidy(lm(DATA_VALUE ~ YEAR, data = .))) %>%
+      tidyr::unnest(fit) %>%
+      dplyr::mutate(sig = ifelse(p.value < 0.05, "yes", "no")) %>%
+      dplyr::filter(term == "YEAR") %>%
+      dplyr::select(name, sig)
+
+    dat <- dplyr::full_join(dat,
+                            pdat,
+                            by = "name") %>%
+      dplyr::mutate(sig = ifelse(is.na(sig), "no", sig))
+
+    plt <- plt +
+      ggplot2::geom_smooth(data = dat %>%
+                             dplyr::filter(sig == "yes"),
+                           method = "lm",
+                           se = FALSE,
+                           color = "darkgreen",
+                           cex = 1.5)
+  }
+
+    if (is.null(min_year)) {
+      plt <- plt +
+        ggplot2::xlim(c(min(dat$YEAR), max(dat$YEAR) + 0.5))
+    } else {
+      plt <- plt +
+        ggplot2::xlim(c(min_year, max(dat$YEAR) + 0.5))
+    }
+  
+  # label facets ----
+  finish_fig <- function() {
+    if (label) {
+      plt <- plt %>%
+        AKesp::label_facets(open = "", close = "")
+    }
+
+    if (out == "save") {
+      ggplot2::ggsave(plt, filename = paste0(name, "_page", i, ".png"), ...)
+    } else if (out == "ggplot") {
+      print(plt)
+      cat("\n\n")
+      if (silent == FALSE) {
+        cat("##### Figure \\@ref(fig:traffic).", caption, "{-}")
+      }
+      cat("\n\n")
+    } else if (out == "one_pager") {
+      return(plt)
+    }
+    else {
+      stop("Please specify output format")
+    }
+  }
+
+  if (paginate == TRUE) {
+    plt2 <- plt +
+      ggforce::facet_wrap_paginate(~name,
+                                   ncol = ncolumn,
+                                   nrow = 5,
+                                   scales = "free_y"
+      )
+
+    n <- ggforce::n_pages(plt2)
+
+    for (i in 1:n) {
+      plt <- plt +
+        ggforce::facet_wrap_paginate(~name,
+                                     ncol = ncolumn,
+                                     nrow = 5,
+                                     scales = "free_y",
+                                     page = i
+        )
+
+      finish_fig()
+    }
+  } else {
+    plt <- plt +
+      ggplot2::facet_wrap(~name,
+                          ncol = ncolumn,
+                          scales = "free_y"
+      )
+
+    finish_fig()
+  }
+}
+```
+
+# Time series of indicators in the WGOM region
+
+## Gulf Stream Anomaly
+```{r, fig.height = 10}
+dat <- ecodata::gsi %>%
+  dplyr::mutate(Year = Time %>%
+                  stringr::str_trunc(4, "right", "") %>%
+                  as.numeric(),
+                Month = Time %>%
+                  stringr::str_trunc(2, "left", "") %>%
+                  as.numeric(),
+                Month = ifelse(Month == 0.1, 10, Month),
+                Month = month.name[Month],
+                INDICATOR_NAME = paste(Month, "GSI")) %>%
+  dplyr::rename(YEAR = Time,
+                DATA_VALUE = Value)
+
+esp_traffic_fig(dat, 
+                min_year = 1954,
+                ncolumn = 2)
+```
+
+## Monthly Sea Surface Temperature
+```{r, fig.height = 16}
+dat <- read.csv(url("https://raw.githubusercontent.com/kimberly-bastille/ESPplayground/main/data-raw/cod_temperature.csv")) %>%
+  dplyr::filter(Region == "WGOM") %>%
+  dplyr::mutate(Month = month.name[Month]) %>%
+  dplyr::rename(YEAR = Year,
+                mean_area_under_11C = mean_area) %>%
+  tidyr::pivot_longer(cols = c("mean_temp", "mean_area_under_11C")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(Month, name)) %>%
+  dplyr::rename(DATA_VALUE = value)
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 2)
+```
+
+## Marine heatwaves
+```{r, fig.width = 5}
+dat <- ecodata::ESP_heatwave_cod %>%
+  dplyr::filter(stock_id == "WGOM") %>%
+  dplyr::group_by(Time, Var) %>%
+  dplyr::summarise(max_value = max(Value)) %>%
+  dplyr::rename(YEAR = Time,
+                INDICATOR_NAME = Var,
+                DATA_VALUE = max_value)
+
+esp_traffic_fig(dat, 
+                min_year = 1982,
+                ncolumn = 1)
+```
+
+## Zooplankton
+```{r}
+winter <- read.csv(here::here("WGOM_winter_zooplankton.csv"))
+spring <- read.csv(here::here("WGOM_spring_zooplankton.csv"))
+summer <- read.csv(here::here("WGOM_summer_zooplankton.csv"))
+fall <- read.csv(here::here("WGOM_fall_zooplankton.csv"))
+
+dat <- rbind(winter, spring, summer, fall) %>%
+  dplyr::select(year, season, ctyp_100m3, calfin_100m3, pseudo_100m3, tlong_100m3) %>%
+  dplyr::rename(YEAR = year) %>%
+  tidyr::pivot_longer(cols = c("ctyp_100m3", "calfin_100m3", "pseudo_100m3", "tlong_100m3")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(season, name)) %>%
+  dplyr::rename(DATA_VALUE = value)
+```
+
+### Calanus
+```{r}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "calfin_100m3"), 
+                min_year = 1977,
+                ncolumn = 2)
+```
+
+### Pseudocalanus
+```{r}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "pseudo_100m3"), 
+                min_year = 1977,
+                ncolumn = 2)
+```
+
+### Centropages
+```{r}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "ctyp_100m3"), 
+                min_year = 1977,
+                ncolumn = 2)
+```
+
+### Temora
+```{r}
+esp_traffic_fig(dat %>%
+                  dplyr::filter(name == "tlong_100m3"), 
+                min_year = 1977,
+                ncolumn = 2)
+```
+
+## Condition
+```{r}
+dat <- read.csv(here::here("Condition/ADIOS_SV_164712_WGOM_NONE_relative_k.csv")) %>%
+  dplyr::mutate(INDICATOR_NAME = paste(SEASON, SURVEY)) %>%
+  dplyr::select(YEAR, INDICATOR_NAME, K_rel) %>%
+  dplyr::group_by(YEAR, INDICATOR_NAME) %>%
+  dplyr::summarise(DATA_VALUE = mean(K_rel))
+
+esp_traffic_fig(dat, 
+                min_year = 1992,
+                ncolumn = 2)
+```
